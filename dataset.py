@@ -1,53 +1,122 @@
+import json
 import os
-import pickle
-from fmm import tokenizer,FMM_func
-from data_filter import mutil_filter,error_filter
-from extract_image_according_to_label_list import extract_image_by_id
-from pad_image import set_pad_img
+from PIL import Image
+import torch
+import torchvision.transforms as transforms
+from torch.utils.data import Dataset
+from collections import Counter
+from tokenizer import Tokenizer
 
-def dataset(input_dir,output_dir):
-    # 三次过滤后的label路径
-    # input_dir='./dataset1/train/labels_filtered3/'
-    # output_dir='./dataset1/train/anno_pure_train.pkl'
-    label_name_list = os.listdir(input_dir)
+class CocoDataset(Dataset):
+    def __init__(self, image_folder, annotation_file, transform=None):
+        self.image_folder = image_folder
+        self.annotation_file = annotation_file
+        self.transform = transform
 
-    annotation=[]
-    for label_name in label_name_list:
-        with open(input_dir + label_name,'r',encoding='utf-8') as f:
-            train_label_name = label_name[:-4]
-            line = f.read()
-            annotation.append({"id":int(train_label_name),"annotation":line})
-            
-    with open(output_dir, 'wb') as f:
-        pickle.dump(annotation, f, 0)
+        # Load annotations
+        self.annotations = self._load_annotations()
+
+        # Build vocabulary
+        self.vocab = self._build_vocab()
+        # self.tokenizer = Tokenizer(self.vocab)
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, index):
+        # Load image
+        image_id = self.annotations[index]['id']
+        image_path = os.path.join(self.image_folder, f'{image_id}.png')
+        image = Image.open(image_path).convert('RGB')
+
+        # Apply transformations if provided
+        if self.transform is not None:
+            image = self.transform(image)
+
+        # Load caption and its length
+        caption = self.annotations[index]['annotation']
+        
+        caption = '<start>' + ' ' + caption + ' ' + '<end>'
+        caption_length = len(caption.split())
+
+        # encoded_cap = self.tokenizer.encode(caption)
+        # print(f'from dataset: {caption} encoded:{encoded_cap}')
+
+        return image, caption, caption_length
+
+    def _load_annotations(self):
+        # Load annotations from JSON file
+        with open(self.annotation_file, 'r') as f:
+            annotations = json.load(f)
+        return annotations
+
+    def _build_vocab(self):
+        # Extract captions
+        captions = [annotation['annotation'] for annotation in self.annotations]
+
+        # Tokenize captions
+        tokenized_captions = [caption.split() for caption in captions]
+        self.max_length = max([len(cap) for cap in tokenized_captions])
+
+        # Count the frequency of each word
+        word_counts = Counter([word for caption in tokenized_captions for word in caption])
+
+        # Sort words by frequency in descending order
+        sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+
+        # Create vocabulary
+        vocab = {
+            '<pad>': 0,  # Padding token
+            '<start>': 1,  # Start of sequence token
+            '<end>': 2,  # End of sequence token
+            '<unk>': 3  # Unknown token
+        }
+
+        # Assign unique integer identifiers to the words
+        for word, _ in sorted_words:
+            if word not in vocab:
+                vocab[word] = len(vocab)
+
+        return vocab
+    
+# class CocoDataset_test(Dataset):
+#     def __init__(self, image_folder, transform=None):
+#         self.image_folder = image_folder
+#         self.transform = transform
+
+
+#     def __len__(self):
+#         return len(self.annotations)
+
+#     def __getitem__(self, index):
+#         # Load image
+#         image_id = self.annotations[index]['id']
+#         image_path = os.path.join(self.image_folder, f'{image_id:012d}.jpg')
+#         image = Image.open(image_path).convert('RGB')
+
+#         # Apply transformations if provided
+#         if self.transform is not None:
+#             image = self.transform(image)
+
+#         return image
+
+
 
 if __name__ == '__main__':
-    # 在这里修改对应的路径
-    input_dir='./dataset1/train/labels/'
-    input_raw_image='./dataset1/train/images/'
-    output_dir1='./dataset1/train/label_filter1/'
-    output_dir2='./dataset1/train/label_filter2/'
-    output_dir3='./dataset1/train/label_filter3/'
-    output_image='./dataset1/train/extract_image/'
-    output_pad_image='./dataset1/train/pad_image/'
-    output_pkl='./dataset1/train/anno_train.pkl'
-    # 首先分词
-    tokenizer(input_dir,output_dir1)
-    # 进行多行过滤和错误过滤
-    mutil_filter(output_dir1,output_dir2)
-    error_filter(output_dir2,output_dir3)
-    #根据标签提取对应的image
-    extract_image_by_id(output_dir3,input_raw_image,output_image)
-    #给img加上合适的pad
-    set_pad_image(output_image,output_pad_image)
-    # 获取label对应的pkl
-    dataset(output_dir3,output_pkl)
+    # Set the paths to the image folder and annotation file
+    image_folder = 'train2017'
+    annotation_file = 'annotations/captions_train2017.json'
 
-# output_image='./dataset1/train/extract_image/'
-# output_pad_image='./dataset1/train/pad_image/'
-# set_pad_img(output_image,output_pad_image)
+    # Define transformations to be applied to the images
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),  # Resize image to a fixed size
+        transforms.ToTensor(),  # Convert image to tensor
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize image
+    ])
 
+    # Create an instance of the CocoDataset
+    dataset = CocoDataset(image_folder, annotation_file, transform)
 
-
-
-
+    # Accessing the elements of the dataset
+    image, caption, caption_length = dataset[0]
+    print(f'image:{type(image)}, captions:{type(caption)}, len:{type(caption_length)}')
