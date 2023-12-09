@@ -82,6 +82,9 @@ class Decoder_transformer(nn.Module):
         encoded_captions = encoded_captions[sort_idx].unsqueeze(-1)
 
         decoder_memory = self.input_to_encoded(encoder_out) # bs, 49, embed_size
+
+        # ! 在encoder处加入了位置编码
+        decoder_memory = self.pe(decoder_memory)
         
         # print(f'debug: decoder_memory:{decoder_memory.shape}')
 
@@ -199,6 +202,9 @@ class Decoder_transformer(nn.Module):
         working_index = torch.arange(bs).to(device)
 
         encoded_input = self.input_to_encoded(encoder_out)
+
+        # ! 在encoder处加入了位置编码
+        encoded_input = self.pe(encoded_input)
 
         # init selected tokens
         max_length = self.max_length

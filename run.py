@@ -12,14 +12,15 @@ from PIL import Image
 import pickle
 import json
 
-# todo: encode是否要scale，训练模式
+# todo: encode是否要scale，训练模式, encoder是否要pretrain, encoder输出是否要加入位置编码，好像也是要加？
 
 class Config(object):
     def __init__(self) -> None:
-        self.max_epoch = 50
+        self.start_epoch = 0
+        self.max_epoch = 100
         self.lr_decoder = 1e-3
         
-        self.device = torch.device('cuda:2')
+        self.device = torch.device('cuda:1')
         self.validate_period = 5
         self.batch_size = 32
         self.save_period = 5
@@ -30,13 +31,14 @@ class Config(object):
         self.task_num = 2
         self.image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/train/images'
         self.annotation_file = f'load_data/task{self.task_num}.json'
-        self.run_name = f'load_data/task{self.task_num}'
+        self.run_name = f'Addpe_task{self.task_num}'
         self.eval_image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/dev/images'
         self.eval_annotation_file = f'load_data/task{self.task_num}_eval.json'
         self.tokenizer_path = f'load_data/saved_tokenizer{self.task_num}.pkl'
 
+
         # checkpoint load path
-        self.load_path = ''
+        self.load_path = None
 
         if self.task_num == 1:
             self.max_length = 200
@@ -91,6 +93,10 @@ if __name__ == '__main__':
         print(f'debug: evalset max length: {eval_dataset.max_length}')
         # training process
         trainer = Runner(config=config, tokenizer=tokenizer)
+        
+        # resume training
+        if config.load_path is not None:
+            trainer.load(config.load_path)
 
         trainer.train(dataloader, eval_dataloader,tb_logger=tb_logger)
     else:

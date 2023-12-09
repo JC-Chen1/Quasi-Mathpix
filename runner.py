@@ -38,10 +38,11 @@ class Runner(object):
 
     def train(self, dataloader, eval_dataloader, tb_logger = None):
         max_epoch = self.config.max_epoch
+        start_epoch = self.config.start_epoch
 
         self.loss_list = []
         self.learning_step = 0
-        for epoch in range(max_epoch):
+        for epoch in range(start_epoch, max_epoch+1):
             print(f'Training epoch [{epoch}/{max_epoch}]...')
             epoch_loss_list = []
             for bat_image, bat_caption, caption_length in tqdm(dataloader,desc=f'run_name:{self.config.run_name}-epoch[{epoch}/{self.config.max_epoch}]'):
