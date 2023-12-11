@@ -2,11 +2,15 @@ import torch
 import torch.nn as nn
 import math
 import torchvision
+from utils import sample_top_p
 
-class Encoder(nn.Module):
+class Encoder4transformer(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.resnet = torchvision.models.resnet50(pretrained=True)
+
+        # no pretrain
+        # self.resnet = torchvision.models.resnet18(pretrained=False)
         # 讲分类层去掉，只需要前面的feature map
         self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-2]))
 
@@ -52,9 +56,10 @@ class Decoder_transformer(nn.Module):
         self.output_size = tokenizer.vocab_size
 
         self.input_size = 2048
+        # self.input_size = 512
         self.embed_size = 256
-        self.num_layer = 1
-        self.num_head = 4
+        self.num_layer = 2
+        self.num_head = 2
         self.max_length = max_length
         self.embedding_net = nn.Linear(1, self.embed_size)
         self.pe = PositionalEncoding(d_model=self.embed_size, max_len=max_length)
@@ -80,17 +85,17 @@ class Decoder_transformer(nn.Module):
 
         encoder_out = encoder_out[sort_idx]
         encoded_captions = encoded_captions[sort_idx].unsqueeze(-1)
-
+        # print(f'debug: enout:{encoder_out.shape}')
         decoder_memory = self.input_to_encoded(encoder_out) # bs, 49, embed_size
 
         # ! 在encoder处加入了位置编码
-        decoder_memory = self.pe(decoder_memory)
+        # decoder_memory = self.pe(decoder_memory)
         
         # print(f'debug: decoder_memory:{decoder_memory.shape}')
-
+        scale = math.sqrt(self.output_size)
         # print(f'debug: h:{h.shape}, c:{c.shape}')
         assert not torch.any(torch.isnan(encoded_captions)), "Nan happen in en_cap!!!"
-        embeded_captions = self.embedding_net(encoded_captions[:, :-1] / math.sqrt(self.output_size))
+        embeded_captions = self.embedding_net((2 * encoded_captions[:, :-1] - self.output_size) / self.output_size )
         assert not torch.any(torch.isnan(embeded_captions)), "Nan happen in em_cap1!!!"
         embeded_captions = self.pe(embeded_captions)
         assert not torch.any(torch.isnan(embeded_captions)), "Nan happen in em_cap2!!!"
@@ -212,7 +217,7 @@ class Decoder_transformer(nn.Module):
         selected_tokens[:,0] = self.tokenizer.start_token_idx
 
         selected_embeded_tokens = torch.zeros((bs, max_length, self.embed_size)).to(device)
-        selected_embeded_tokens[:, 0] = self.pe(self.embedding_net(selected_tokens[:, 0] / scale),pos=0)
+        selected_embeded_tokens[:, 0] = self.pe(self.embedding_net((2 * selected_tokens[:, 0] - self.output_size) / self.output_size),pos=0)
 
         cur_len = 1
         while working_index.shape[0] > 0:
@@ -229,7 +234,7 @@ class Decoder_transformer(nn.Module):
             else:
                 next_token = torch.argmax(out_decoder, dim=-1).unsqueeze(-1)
             selected_tokens[working_index, cur_len, :] = next_token.float()
-            selected_embeded_tokens[working_index, cur_len, :] = self.pe(self.embedding_net(selected_tokens[working_index, cur_len, :] / scale), pos=cur_len)
+            selected_embeded_tokens[working_index, cur_len, :] = self.pe(self.embedding_net((2 * selected_tokens[working_index, cur_len, :] - self.output_size) / self.output_size), pos=cur_len)
             # print(f'debug: se:{selected_tokens.shape}, seem:{selected_embeded_tokens.shape}')
 
             not_end_index = self.tokenizer.not_end(next_token).squeeze(-1)
@@ -243,28 +248,3 @@ class Decoder_transformer(nn.Module):
         return selected_tokens.cpu().long().squeeze()
 
 
-# todo: 加入top-p采样
-def sample_top_p(probs, p):
-    """
-    Perform top-p (nucleus) sampling on a probability distribution.
-
-    Args:
-        probs (torch.Tensor): Probability distribution tensor.
-        p (float): Probability threshold for top-p sampling.
-
-    Returns:
-        torch.Tensor: Sampled token indices.
-
-    Note:
-        Top-p sampling selects the smallest set of tokens whose cumulative probability mass
-        exceeds the threshold p. The distribution is renormalized based on the selected tokens.
-
-    """
-    probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
-    probs_sum = torch.cumsum(probs_sort, dim=-1)
-    mask = probs_sum - probs_sort > p
-    probs_sort[mask] = 0.0
-    probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
-    next_token = torch.multinomial(probs_sort, num_samples=1)
-    next_token = torch.gather(probs_idx, -1, next_token)
-    return next_token

@@ -2,8 +2,8 @@ import nltk
 import distance
 from nltk.translate.bleu_score import sentence_bleu
 
-references = ["I love cats", "The sun is shining", "Hello, world!"]
-hypotheses = ["I love dogs", "The moon is bright", "Hello, everyone!"]
+# references = ["I love cats", "The sun is shining", "Hello, world!"]
+# hypotheses = ["I love dogs", "The moon is bright", "Hello, everyone!"]
 
 #bilingual evaluation understudy score: 
 def bleu_sore(references, hypotheses):
@@ -33,7 +33,7 @@ def edit_distance(references, hypotheses):
 def exact_match_score(references, hypothesis):
     assert len(references) == len(hypothesis), 'references and hypothesis have different length!!!'
     count = 0
-    for ref, hypo in zip(references, hypotheses):
+    for ref, hypo in zip(references, hypothesis):
         if ref == hypo:
             count += 1
     Accuracy = count / len(references)

@@ -1,5 +1,7 @@
 from torch.nn.utils.rnn import pack_padded_sequence
-from model import Encoder, Decoder_transformer
+from model.transformer import Encoder4transformer, Decoder_transformer
+from model.lstm import Encoder4lstm, Decoder_lstm
+
 import torch
 import torch.nn as nn
 import os
@@ -9,20 +11,36 @@ from utils import clip_grad_norms
 import time
 from score import *
 
+Get_encoder = {
+    'lstm': Encoder4lstm,
+    'transformer': Encoder4transformer
+}
+
+Get_decoder = {
+    'lstm': Decoder_lstm,
+    'transformer': Decoder_transformer
+}
+
 class Runner(object):
     def __init__(self, config, tokenizer) -> None:
         self.config = config
-        self.encoder = Encoder()
+        self.encoder = Get_encoder.get(config.selected_model)()
         # self.decoder = Decoder(tokenizer)
 
-        self.decoder = Decoder_transformer(tokenizer, config.max_length)
+        self.decoder = Get_decoder.get(config.selected_model)(tokenizer, config.max_length)
 
         self.tokenizer = tokenizer
 
-        self.optimizer = torch.optim.Adam(
-            [{'params':self.decoder.parameters(), 'lr': self.config.lr_decoder}]
-        )
-
+        if config.selected_model == 'transformer':
+            self.optimizer = torch.optim.Adam(
+                [{'params':self.encoder.parameters(), 'lr': self.config.lr_decoder}] +
+                [{'params':self.decoder.parameters(), 'lr': self.config.lr_decoder}]
+            )
+        elif config.selected_model == 'lstm':
+            self.optimizer = torch.optim.Adam(
+                [{'params':self.encoder.fc.parameters(), 'lr': self.config.lr_decoder}] +
+                [{'params':self.decoder.parameters(), 'lr': self.config.lr_decoder}]
+            )
 
         # move to device
         device = config.device
@@ -52,11 +70,12 @@ class Runner(object):
                 epoch_loss_list.append(bat_loss)
                 if (tb_logger is not None) and (self.learning_step % self.config.log_period == 0):
                     tb_logger.add_scalar("loss", bat_loss, self.learning_step)
-            self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
+            # self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
             
             print(f'Loss of epoch [{epoch}/{max_epoch}] is {np.mean(epoch_loss_list)}, current learning steps:{self.learning_step}')
             
             if epoch % 5 == 0:
+                self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
                 self.eval(eval_dataloader,epoch,tb_logger)
         loss_path = f"saved_model/transformer/{self.config.run_name}"
         with open(f"{loss_path}/loss-{epoch}.pt", 'wb') as f:
@@ -113,22 +132,37 @@ class Runner(object):
         print('Saving model...')
         if not os.path.exists(saving_path):
             os.makedirs(saving_path)
-        torch.save(
-            {
-                # 'encoder': self.encoder.fc.state_dict(),
-                'decoder': self.decoder.state_dict(),
-                'decoder_optimizer': self.optimizer.state_dict(),
-            },
-            os.path.join(saving_path, f'epoch-{epoch}.pt')
-        )
+        if self.config.selected_model == 'transformer':
+            torch.save(
+                {
+                    # 'encoder': self.encoder.state_dict(),
+                    'decoder': self.decoder.state_dict(),
+                    'decoder_optimizer': self.optimizer.state_dict(),
+                },
+                os.path.join(saving_path, f'epoch-{epoch}.pt')
+            )
+        elif self.config.selected_model == 'lstm':
+            torch.save(
+                {
+                    'encoder': self.encoder.fc.state_dict(),
+                    'decoder': self.decoder.state_dict(),
+                    'decoder_optimizer': self.optimizer.state_dict(),
+                },
+                os.path.join(saving_path, f'epoch-{epoch}.pt')
+            )
 
         print('Successfully save model...')
 
     def load(self, path):
         save_dict = torch.load(path)
-        # self.encoder.fc.load_state_dict(save_dict['encoder'])
-        self.decoder.load_state_dict(save_dict['decoder'])
-        self.optimizer.load_state_dict(save_dict['decoder_optimizer'])
+        if self.config.selected_model == 'transformer':
+            # self.encoder.load_state_dict(save_dict['encoder'])
+            self.decoder.load_state_dict(save_dict['decoder'])
+            self.optimizer.load_state_dict(save_dict['decoder_optimizer'])
+        elif self.config.selected_model == 'lstm':
+            self.encoder.fc.load_state_dict(save_dict['encoder'])
+            self.decoder.load_state_dict(save_dict['decoder'])
+            self.optimizer.load_state_dict(save_dict['decoder_optimizer'])
         print(' [*] Loading data from {}'.format(path))
 
 
@@ -147,8 +181,8 @@ class Runner(object):
                 images = images.to(device)
                 encoded_img = self.encoder(images)
 
-                # todo: add temperature
-                predicts = self.decoder.generate(encoder_out=encoded_img, temperature=1, top_p=0.25)
+                # todo: add temperature, no top_p
+                predicts = self.decoder.generate(encoder_out=encoded_img, temperature=0, top_p=0.25)
 
                 predicts_string = self.tokenizer.decode(predicts)
                 refers.extend(refer)
@@ -163,16 +197,26 @@ class Runner(object):
             tb_logger.add_scalar("eval/t_score", t_score, epoch)
         
 
-    def test(self, images):
+    def test(self, test_dataloader, output_path):
         self.encoder.eval()
         self.decoder.eval()
         
         device = self.config.device
-        images = images.to(device)
+        save_list = []
+        save_ids = []
         with torch.no_grad():
-            encoded_img = self.encoder(images)
+            for  ids, images in tqdm(test_dataloader,desc="Testing..."):
+                images = images.to(device)
+                encoded_img = self.encoder(images)
 
-            # todo: add temperature
-            predicts = self.decoder.generate(encoder_out=encoded_img)
+                # todo: add temperature
+                predicts = self.decoder.generate(encoder_out=encoded_img)
+                predicts_string = self.tokenizer.decode(predicts)
+                save_list.extend(predicts_string)
+                save_ids.extend(ids)
 
-        
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        with open(output_path + "test_out.txt", 'w') as f:
+            for id, str in zip(save_ids, save_list):
+                f.write(id + ": " + str + '\n')

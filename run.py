@@ -1,7 +1,7 @@
 
 import torch
 from runner import Runner
-from dataset import CocoDataset
+from dataset import CocoDataset, CocoDataset_test
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from tokenizer import Tokenizer
@@ -20,7 +20,7 @@ class Config(object):
         self.max_epoch = 100
         self.lr_decoder = 1e-3
         
-        self.device = torch.device('cuda:1')
+        self.device = torch.device('cuda:2')
         self.validate_period = 5
         self.batch_size = 32
         self.save_period = 5
@@ -28,10 +28,11 @@ class Config(object):
         self.max_token_length = 50
         self.max_norm = 1
 
+        self.selected_model = 'transformer'
         self.task_num = 2
         self.image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/train/images'
         self.annotation_file = f'load_data/task{self.task_num}.json'
-        self.run_name = f'Addpe_task{self.task_num}'
+        self.run_name = f'newscale_task{self.task_num}'
         self.eval_image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/dev/images'
         self.eval_annotation_file = f'load_data/task{self.task_num}_eval.json'
         self.tokenizer_path = f'load_data/saved_tokenizer{self.task_num}.pkl'
@@ -39,6 +40,10 @@ class Config(object):
 
         # checkpoint load path
         self.load_path = None
+
+        # for test
+        self.id_path = '/home/chenjiacheng/neural_network/big2/dataset1/test_ids.txt'
+        self.test_image_folder = '/home/chenjiacheng/neural_network/big2/dataset1/test/images'
 
         if self.task_num == 1:
             self.max_length = 200
@@ -49,7 +54,7 @@ if __name__ == '__main__':
     config = Config()
     config.run_name = "{}_{}".format(config.run_name, time.strftime("%Y%m%dT%H%M%S"))
     # # process dataloader
-
+    assert config.selected_model in ['lstm','transformer'], 'The seleted model is not supported yet!!'
 
     # # training process
     # trainer = Trainer(config=config)
@@ -108,29 +113,6 @@ if __name__ == '__main__':
         # load model
         trainer.load(config.load_path)
 
-        # todo
-        folder_path = "test2017"
-        images = []
-        image_ids = []
-        for filename in os.listdir(folder_path):
-            if filename.endswith(".jpg"):  # 可以根据需要添加其他图像格式
-                image_ids.append(filename)
-                image_path = os.path.join(folder_path, filename)
-                image = Image.open(image_path).convert("RGB")
-                image = transform(image)
-                images.append(image)
-        
-        images = torch.stack(images, 0)
-        print(f'debug: {len(images)}, {images.shape}')
-
-        tokens = trainer.rollout(images)
-        print(f'debug: out_tokens:{tokens}')
-        
-        decoded_tokens = tokenizer.decode(tokens)
-
-        for id, text in zip(image_ids, decoded_tokens):
-            print(f'id:{id}, caption:{text}')
-
-        # print(tokenizer.idx_to_word.get(6))
-
-
+        test_dataset = CocoDataset_test(config.test_image_folder, config.id_path, transform)
+        dataloader = DataLoader(test_dataset,batch_size=config.batch_size, shuffle=False)
+        trainer.test(dataloader, './')

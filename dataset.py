@@ -78,28 +78,34 @@ class CocoDataset(Dataset):
                 vocab[word] = len(vocab)
 
         return vocab
-    
-# class CocoDataset_test(Dataset):
-#     def __init__(self, image_folder, transform=None):
-#         self.image_folder = image_folder
-#         self.transform = transform
 
+# only image
+class CocoDataset_test(Dataset):
+    def __init__(self, image_folder, id_path, transform=None):
+        self.image_folder = image_folder
+        self.transform = transform
+        self.ids = self._load_ids(id_path)
 
-#     def __len__(self):
-#         return len(self.annotations)
+    def __len__(self):
+        return len(self.ids)
 
-#     def __getitem__(self, index):
-#         # Load image
-#         image_id = self.annotations[index]['id']
-#         image_path = os.path.join(self.image_folder, f'{image_id:012d}.jpg')
-#         image = Image.open(image_path).convert('RGB')
+    def __getitem__(self, index):
+        # Load image
+        image_id = self.ids[index]
+        image_path = os.path.join(self.image_folder, f'{image_id}.png')
+        image = Image.open(image_path).convert('RGB')
 
-#         # Apply transformations if provided
-#         if self.transform is not None:
-#             image = self.transform(image)
+        # Apply transformations if provided
+        if self.transform is not None:
+            image = self.transform(image)
 
-#         return image
+        return image_id, image
 
+    def _load_ids(self, path):
+        with open(path, 'r') as f:
+            ids = f.read().split()
+        return ids
+        
 
 
 if __name__ == '__main__':
