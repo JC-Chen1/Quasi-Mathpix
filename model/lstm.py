@@ -63,7 +63,7 @@ class Decoder_lstm(nn.Module):
         c = self.init_c_net(encoder_out).unsqueeze(0)
 
         # print(f'debug: h:{h.shape}, c:{c.shape}')
-        embeded_captions = self.embedding_net(encoded_captions)
+        embeded_captions = self.embedding_net((2 * encoded_captions - self.output_size) / self.output_size)
 
         decoder_length = (caption_lengths - 1)
         # print(f'debug: decoder length:{decoder_length}')
@@ -104,7 +104,7 @@ class Decoder_lstm(nn.Module):
 
 
         while working_index.shape[0] > 0:
-            x_in = selected_tokens[working_index, cur_len]
+            x_in = (2 * selected_tokens[working_index, cur_len] - self.output_size) / self.output_size
             # print(f'debug: x_in:{x_in.shape}')
             x_in = self.embedding_net(x_in).unsqueeze(1)
             # print(f'debug: x_in:{x_in.shape}')
