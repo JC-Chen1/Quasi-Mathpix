@@ -1,0 +1,16 @@
+logs/
+__pycache__/
+dataset1/
+dataset2/
+saved_model/
+labels_ds2/
+labels_ds1/
+anno_dev1.pkl
+anno_dev2.pkl
+anno_train.pkl
+anno_train(1).pkl
+debug.ipynb
+saved_tokenizer.pkl
+saved_vocab.json
+readme.md
+test_out.txt
