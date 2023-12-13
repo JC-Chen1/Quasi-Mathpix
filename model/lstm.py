@@ -5,7 +5,7 @@ import torchvision
 from utils import sample_top_p
 
 class Encoder4lstm(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, train_mode) -> None:
         super().__init__()
         self.resnet = torchvision.models.resnet50(pretrained=True)
         self.fc = nn.Linear(1000, 256)
@@ -21,11 +21,11 @@ class Encoder4lstm(nn.Module):
         return out
     
 class Decoder_lstm(nn.Module):
-    def __init__(self, tokenizer, max_length) -> None:
+    def __init__(self, tokenizer, config) -> None:
         super().__init__()
         self.tokenizer = tokenizer
         self.output_size = tokenizer.vocab_size
-        self.max_length = max_length
+        self.max_length = config.max_length
 
         self.input_size =256
         self.hidden_size = 512

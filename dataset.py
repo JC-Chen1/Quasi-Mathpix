@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from collections import Counter
 from tokenizer import Tokenizer
+from gensim.models import Word2Vec
 
 class CocoDataset(Dataset):
     def __init__(self, image_folder, annotation_file, transform=None):
@@ -50,32 +51,34 @@ class CocoDataset(Dataset):
             annotations = json.load(f)
         return annotations
 
+    # 改成了word2vec
     def _build_vocab(self):
         # Extract captions
-        captions = [annotation['annotation'] for annotation in self.annotations]
+        captions = ['<start> ' + annotation['annotation'] + ' <end>' for annotation in self.annotations]
 
         # Tokenize captions
         tokenized_captions = [caption.split() for caption in captions]
         self.max_length = max([len(cap) for cap in tokenized_captions])
 
-        # Count the frequency of each word
-        word_counts = Counter([word for caption in tokenized_captions for word in caption])
+        vocab = Word2Vec(tokenized_captions, vector_size=100, window=5, min_count=1, workers=4)
+        # # Count the frequency of each word
+        # word_counts = Counter([word for caption in tokenized_captions for word in caption])
 
-        # Sort words by frequency in descending order
-        sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+        # # Sort words by frequency in descending order
+        # sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
 
-        # Create vocabulary
-        vocab = {
-            '<pad>': 0,  # Padding token
-            '<start>': 1,  # Start of sequence token
-            '<end>': 2,  # End of sequence token
-            '<unk>': 3  # Unknown token
-        }
+        # # Create vocabulary
+        # vocab = {
+        #     '<pad>': 0,  # Padding token
+        #     '<start>': 1,  # Start of sequence token
+        #     '<end>': 2,  # End of sequence token
+        #     '<unk>': 3  # Unknown token
+        # }
 
-        # Assign unique integer identifiers to the words
-        for word, _ in sorted_words:
-            if word not in vocab:
-                vocab[word] = len(vocab)
+        # # Assign unique integer identifiers to the words
+        # for word, _ in sorted_words:
+        #     if word not in vocab:
+        #         vocab[word] = len(vocab)
 
         return vocab
 

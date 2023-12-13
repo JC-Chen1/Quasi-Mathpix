@@ -19,8 +19,10 @@ class Config(object):
         self.start_epoch = 0
         self.max_epoch = 100
         self.lr_decoder = 1e-3
+        self.lr_min = 1e-4
+        self.lr_decay=pow((self.lr_min/self.lr_decoder),1/(self.max_epoch))
         
-        self.device = torch.device('cuda:2')
+        self.device = torch.device('cuda:1')
         self.validate_period = 5
         self.batch_size = 32
         self.save_period = 5
@@ -30,9 +32,10 @@ class Config(object):
 
         self.selected_model = 'transformer'
         self.task_num = 2
+        self.train_mode = 'partial'
         self.image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/train/images'
         self.annotation_file = f'load_data/task{self.task_num}.json'
-        self.run_name = f'newscale_task{self.task_num}'
+        self.run_name = f'newtransform_part_task{self.task_num}'
         self.eval_image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/dev/images'
         self.eval_annotation_file = f'load_data/task{self.task_num}_eval.json'
         self.tokenizer_path = f'load_data/saved_tokenizer{self.task_num}.pkl'
@@ -55,21 +58,27 @@ if __name__ == '__main__':
     config.run_name = "{}_{}".format(config.run_name, time.strftime("%Y%m%dT%H%M%S"))
     # # process dataloader
     assert config.selected_model in ['lstm','transformer'], 'The seleted model is not supported yet!!'
-
+    assert config.train_mode in ['full', 'partial'], 'Unsupported training mode!!'
     # # training process
     # trainer = Trainer(config=config)
 
     # trainer.train()
     training = True
+    only_eval = False
     image_folder = config.image_folder
     annotation_file = config.annotation_file
     # Define transformations to be applied to the images
+    # transform = transforms.Compose([
+    #     transforms.Resize((224, 224)),  # Resize image to a fixed size
+    #     transforms.ToTensor(),  # Convert image to tensor
+    #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize image
+    # ])
+
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),  # Resize image to a fixed size
+        transforms.Resize((40, 240)),  # Resize image to a fixed size
         transforms.ToTensor(),  # Convert image to tensor
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize image
     ])
-
     
     
     tb_logger = SummaryWriter(os.path.join("logs", config.run_name))
@@ -80,10 +89,11 @@ if __name__ == '__main__':
         dataset = CocoDataset(image_folder, annotation_file, transform)
 
         tokenizer = Tokenizer(dataset.vocab)
-        if training:
-            json_data = json.dumps(tokenizer.vocab)
-            with open('saved_vocab.json','w') as f:
-                f.write(json_data)
+        # if training:
+        #     json_data = json.dumps(tokenizer.vocab)
+        #     with open('saved_vocab.json','w') as f:
+        #         f.write(json_data)
+            
         # print(tokenizer.vocab)
         print(f'debug: max length: {dataset.max_length}')
 
@@ -103,7 +113,7 @@ if __name__ == '__main__':
         if config.load_path is not None:
             trainer.load(config.load_path)
 
-        trainer.train(dataloader, eval_dataloader,tb_logger=tb_logger)
+        trainer.train(dataloader, eval_dataloader,tb_logger=tb_logger, only_eval=only_eval)
     else:
         # load tokenizer
         with open(config.tokenizer_path,'rb') as f:
