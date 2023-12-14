@@ -21,6 +21,10 @@ Get_decoder = {
     'transformer': Decoder_transformer
 }
 
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 class Runner(object):
     def __init__(self, config, tokenizer) -> None:
         self.config = config
@@ -38,12 +42,15 @@ class Runner(object):
             )
         elif config.selected_model == 'lstm':
             self.optimizer = torch.optim.Adam(
-                [{'params':self.encoder.fc.parameters(), 'lr': self.config.lr_decoder}] +
+                [{'params':self.encoder.parameters(), 'lr': self.config.lr_decoder}] +
                 [{'params':self.decoder.parameters(), 'lr': self.config.lr_decoder}]
             )
 
         self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, config.lr_decay, last_epoch=-1,)
 
+        # debug
+        # print(f'debug: 参数量:{count_parameters(self.decoder)}')
+        # torch.rand()
         # move to device
         device = config.device
         self.encoder = self.encoder.to(device)
@@ -95,7 +102,7 @@ class Runner(object):
         # self.load("saved_model/epoch-20.pt")
 
     def train_batch(self, image, caption, length):
-        self.encoder.eval()
+        self.encoder.train()
         self.decoder.train()
 
 
@@ -154,7 +161,7 @@ class Runner(object):
         elif self.config.selected_model == 'lstm':
             torch.save(
                 {
-                    'encoder': self.encoder.fc.state_dict(),
+                    'encoder': self.encoder.state_dict(),
                     'decoder': self.decoder.state_dict(),
                     'decoder_optimizer': self.optimizer.state_dict(),
                 },

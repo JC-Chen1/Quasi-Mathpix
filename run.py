@@ -22,7 +22,7 @@ class Config(object):
         self.lr_min = 1e-4
         self.lr_decay=pow((self.lr_min/self.lr_decoder),1/(self.max_epoch))
         
-        self.device = torch.device('cuda:1')
+        self.device = torch.device('cuda:0')
         self.validate_period = 5
         self.batch_size = 32
         self.save_period = 5
@@ -32,10 +32,10 @@ class Config(object):
 
         self.selected_model = 'transformer'
         self.task_num = 2
-        self.train_mode = 'partial'
+        self.train_mode = 'full'
         self.image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/train/images'
         self.annotation_file = f'load_data/task{self.task_num}.json'
-        self.run_name = f'newtransform_part_task{self.task_num}'
+        self.run_name = f'full_train_task{self.task_num}'
         self.eval_image_folder = f'/home/chenjiacheng/neural_network/big2/dataset{self.task_num}/dev/images'
         self.eval_annotation_file = f'load_data/task{self.task_num}_eval.json'
         self.tokenizer_path = f'load_data/saved_tokenizer{self.task_num}.pkl'
