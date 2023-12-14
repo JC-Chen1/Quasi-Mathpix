@@ -60,7 +60,7 @@ class CocoDataset(Dataset):
         tokenized_captions = [caption.split() for caption in captions]
         self.max_length = max([len(cap) for cap in tokenized_captions])
 
-        vocab = Word2Vec(tokenized_captions, vector_size=100, window=5, min_count=1, workers=4)
+        vocab = Word2Vec(tokenized_captions, vector_size=100, window=5, min_count=1, workers=4, seed=42)
         # # Count the frequency of each word
         # word_counts = Counter([word for caption in tokenized_captions for word in caption])
 
