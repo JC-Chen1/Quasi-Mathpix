@@ -131,10 +131,10 @@ class Encoder4transformer(nn.Module):
             # self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-2]))
 
             # 4层的ResNet
-            # self.resnet = ResNet(BasicBlock, [1, 1, 1, 1])
+            self.resnet = ResNet(BasicBlock, [1, 1, 1, 1])
 
             # 简单的cnn
-            self.resnet = CNN()
+            # self.resnet = CNN()
         
         # 讲分类层去掉，只需要前面的feature map
         
@@ -201,11 +201,11 @@ class Decoder_transformer(nn.Module):
             # self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=16)
 
             # resnet
-            # self.input_size = 64
-            # self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=150)
+            self.input_size = 64
+            self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=150)
 
-            self.input_size = 32
-            self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=60)
+            # self.input_size = 32
+            # self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=60)
         
         self.num_layer = 2
         self.num_head = 2
