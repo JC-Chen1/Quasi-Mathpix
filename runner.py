@@ -63,7 +63,7 @@ class Runner(object):
         self.criterion = nn.CrossEntropyLoss().to(device)
 
 
-    def train(self, dataloader, eval_dataloader, tb_logger = None, only_eval = False):
+    def train(self, dataloader, eval_dataloader, test_dataloader, tb_logger = None, only_eval = False):
         max_epoch = self.config.max_epoch
         start_epoch = self.config.start_epoch
 
@@ -91,6 +91,8 @@ class Runner(object):
                 if epoch % 5 == 0:
                     self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
                     self.eval(eval_dataloader,epoch,tb_logger)
+                    if epoch >= 50:
+                        self.test(test_dataloader, self.config.test_out_path, epoch)
 
                 self.lr_scheduler.step()
             loss_path = f"saved_model/transformer/{self.config.run_name}"
@@ -215,7 +217,7 @@ class Runner(object):
             tb_logger.add_scalar("eval/t_score", t_score, epoch)
         
 
-    def test(self, test_dataloader, output_path):
+    def test(self, test_dataloader, output_path, epoch):
         self.encoder.eval()
         self.decoder.eval()
         
@@ -235,6 +237,6 @@ class Runner(object):
 
         if not os.path.exists(output_path):
             os.makedirs(output_path)
-        with open(output_path + "test_out.txt", 'w') as f:
+        with open(output_path + f"test_out-{epoch}.txt", 'w') as f:
             for id, str in zip(save_ids, save_list):
                 f.write(id + ": " + str + '\n')
