@@ -1,17 +1,14 @@
 # Quasi-Mathfix
 
----
 
 A simple image-to-latex recognizer.
 
----
 
 ## Requirements
 ```
 pip install requirements.txt
 ```
 
----
 
 ## Overview
 ```
@@ -42,8 +39,6 @@ pip install requirements.txt
 |- tokenizer.py                                     : tokenizer
 |- utils.py                                         : some useful interfaces
 ```
-
----
 
 ## Running
 * **Training**
