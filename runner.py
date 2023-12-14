@@ -21,13 +21,17 @@ Get_decoder = {
     'transformer': Decoder_transformer
 }
 
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 class Runner(object):
     def __init__(self, config, tokenizer) -> None:
         self.config = config
-        self.encoder = Get_encoder.get(config.selected_model)()
+        self.encoder = Get_encoder.get(config.selected_model)(config.train_mode)
         # self.decoder = Decoder(tokenizer)
 
-        self.decoder = Get_decoder.get(config.selected_model)(tokenizer, config.max_length)
+        self.decoder = Get_decoder.get(config.selected_model)(tokenizer, config)
 
         self.tokenizer = tokenizer
 
@@ -38,10 +42,15 @@ class Runner(object):
             )
         elif config.selected_model == 'lstm':
             self.optimizer = torch.optim.Adam(
-                [{'params':self.encoder.fc.parameters(), 'lr': self.config.lr_decoder}] +
+                [{'params':self.encoder.parameters(), 'lr': self.config.lr_decoder}] +
                 [{'params':self.decoder.parameters(), 'lr': self.config.lr_decoder}]
             )
 
+        self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, config.lr_decay, last_epoch=-1,)
+
+        # debug
+        # print(f'debug: 参数量:{count_parameters(self.decoder)}')
+        # torch.rand()
         # move to device
         device = config.device
         self.encoder = self.encoder.to(device)
@@ -54,47 +63,55 @@ class Runner(object):
         self.criterion = nn.CrossEntropyLoss().to(device)
 
 
-    def train(self, dataloader, eval_dataloader, tb_logger = None):
+    def train(self, dataloader, eval_dataloader, tb_logger = None, only_eval = False):
         max_epoch = self.config.max_epoch
         start_epoch = self.config.start_epoch
 
         self.loss_list = []
         self.learning_step = 0
-        for epoch in range(start_epoch, max_epoch+1):
-            print(f'Training epoch [{epoch}/{max_epoch}]...')
-            epoch_loss_list = []
-            for bat_image, bat_caption, caption_length in tqdm(dataloader,desc=f'run_name:{self.config.run_name}-epoch[{epoch}/{self.config.max_epoch}]'):
-                bat_loss = self.train_batch(bat_image, bat_caption, caption_length)
-                self.learning_step+=1
-                self.loss_list.append(bat_loss)
-                epoch_loss_list.append(bat_loss)
-                if (tb_logger is not None) and (self.learning_step % self.config.log_period == 0):
-                    tb_logger.add_scalar("loss", bat_loss, self.learning_step)
-            # self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
-            
-            print(f'Loss of epoch [{epoch}/{max_epoch}] is {np.mean(epoch_loss_list)}, current learning steps:{self.learning_step}')
-            
-            if epoch % 5 == 0:
-                self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
-                self.eval(eval_dataloader,epoch,tb_logger)
-        loss_path = f"saved_model/transformer/{self.config.run_name}"
-        with open(f"{loss_path}/loss-{epoch}.pt", 'wb') as f:
-            torch.save(self.loss_list, f)
+
+        # only eval
+        if only_eval:
+            self.eval(eval_dataloader,-1,tb_logger)
+        else:
+            for epoch in range(start_epoch, max_epoch+1):
+                print(f'Training epoch [{epoch}/{max_epoch}]...')
+                epoch_loss_list = []
+                for bat_image, bat_caption, caption_length in tqdm(dataloader,desc=f"run_name:{self.config.run_name}-epoch[{epoch}/{self.config.max_epoch}], lr={round(self.optimizer.param_groups[0]['lr'], 5)}"):
+                    bat_loss = self.train_batch(bat_image, bat_caption, caption_length)
+                    self.learning_step+=1
+                    self.loss_list.append(bat_loss)
+                    epoch_loss_list.append(bat_loss)
+                    if (tb_logger is not None) and (self.learning_step % self.config.log_period == 0):
+                        tb_logger.add_scalar("loss", bat_loss, self.learning_step)
+                # self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
+                
+                print(f'Loss of epoch [{epoch}/{max_epoch}] is {np.mean(epoch_loss_list)}, current learning steps:{self.learning_step}')
+                
+                if epoch % 5 == 0:
+                    self.save_checkpoint(f"saved_model/transformer/{self.config.run_name}", epoch)
+                    self.eval(eval_dataloader,epoch,tb_logger)
+
+                self.lr_scheduler.step()
+            loss_path = f"saved_model/transformer/{self.config.run_name}"
+            with open(f"{loss_path}/loss-{epoch}.pt", 'wb') as f:
+                torch.save(self.loss_list, f)
         tb_logger.close()
         # save model 
         # self.save_checkpoint("saved_model", max_epoch)
         # self.load("saved_model/epoch-20.pt")
 
     def train_batch(self, image, caption, length):
-        self.encoder.eval()
+        self.encoder.train()
         self.decoder.train()
 
 
         device = self.config.device
         image = image.to(device)
-        encoded_caption = torch.FloatTensor(self.tokenizer.encode(caption)) 
+        encoded_caption, target_idxs = self.tokenizer.encode(caption)
         # print(f'debug: {encoded_caption.shape}')
-        encoded_caption = encoded_caption.to(device)
+        encoded_caption = torch.FloatTensor(encoded_caption).to(device)
+        target_idxs = torch.tensor(target_idxs, dtype=torch.long).to(device)
         length = length.to(device)
         # print(f'debug: length:{length}')
 
@@ -102,14 +119,14 @@ class Runner(object):
         # print(f'debug: encoded_img:{encoded_img.shape}')
 
         scores, encoded_caption, decode_length, sort_idx = self.decoder(encoded_img, encoded_caption, length)
-
+        # print(f'debug: scores:{scores.shape}')
         # scores = scores.permute(0, 2, 1)
-        targets = encoded_caption[:, 1:]
+        targets = target_idxs[sort_idx][:, 1:]
         
         scores = pack_padded_sequence(scores, decode_length.cpu(), batch_first=True).data
         targets = pack_padded_sequence(targets, decode_length.cpu(), batch_first=True).data.squeeze()
         # print(f'debug: scores:{scores.shape}, targets:{targets.shape}')
-
+        # print(f'debug: scores:{scores.shape}, targets:{targets.shape}')
         assert not torch.any(torch.isnan(scores)), "Nan happen in scores!!!"
         assert not torch.any(torch.isnan(targets)), "Nan happen in targets!!!"
 
@@ -135,7 +152,7 @@ class Runner(object):
         if self.config.selected_model == 'transformer':
             torch.save(
                 {
-                    # 'encoder': self.encoder.state_dict(),
+                    'encoder': self.encoder.state_dict() if self.config.train_mode == 'full' else None,
                     'decoder': self.decoder.state_dict(),
                     'decoder_optimizer': self.optimizer.state_dict(),
                 },
@@ -144,7 +161,7 @@ class Runner(object):
         elif self.config.selected_model == 'lstm':
             torch.save(
                 {
-                    'encoder': self.encoder.fc.state_dict(),
+                    'encoder': self.encoder.state_dict(),
                     'decoder': self.decoder.state_dict(),
                     'decoder_optimizer': self.optimizer.state_dict(),
                 },
@@ -156,7 +173,8 @@ class Runner(object):
     def load(self, path):
         save_dict = torch.load(path)
         if self.config.selected_model == 'transformer':
-            # self.encoder.load_state_dict(save_dict['encoder'])
+            if self.config.train_mode == 'full':
+                self.encoder.load_state_dict(save_dict['encoder'])
             self.decoder.load_state_dict(save_dict['decoder'])
             self.optimizer.load_state_dict(save_dict['decoder_optimizer'])
         elif self.config.selected_model == 'lstm':

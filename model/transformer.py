@@ -3,24 +3,158 @@ import torch.nn as nn
 import math
 import torchvision
 from utils import sample_top_p
+import torch.nn.functional as F
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+        )
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        if stride != 1 or in_channels != self.expansion * out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(
+                    in_channels,
+                    self.expansion * out_channels,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(self.expansion * out_channels),
+            )
+        else:
+            self.shortcut = nn.Sequential()
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+    
+class ResNet(nn.Module):
+    def __init__(self, block, num_blocks, num_classes=10):
+        super(ResNet, self).__init__()
+        self.in_channels = 32
+
+        self.conv1 = nn.Conv2d(
+            3, 32, kernel_size=3, stride=1, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(32)
+        self.layer1 = self.make_layer(block, 32, num_blocks[0], stride=1)
+        self.layer2 = self.make_layer(block, 64, num_blocks[1], stride=2)
+        self.layer3 = self.make_layer(block, 64, num_blocks[2], stride=2)
+        self.layer4 = self.make_layer(block, 64, num_blocks[3], stride=2)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+    def make_layer(self, block, out_channels, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_channels, out_channels, stride))
+            self.in_channels = out_channels * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        # out = F.avg_pool2d(out, 4)
+        # out = out.view(out.size(0), -1)
+        # out = self.fc(out)
+        return out
+
+
+class CNN(nn.Module):
+    def __init__(self):
+        super(CNN, self).__init__()
+        
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1)
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool2d(kernel_size=6, stride=6)
+        
+        # self.fc1 = nn.Linear(10 * 56, 48)
+        # self.relu3 = nn.ReLU()
+        
+        # self.fc2 = nn.Linear(1024, 512)
+        # self.relu4 = nn.ReLU()
+    
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.relu1(out)
+        out = self.pool1(out)
+        
+        out = self.conv2(out)
+        out = self.relu2(out)
+        out = self.pool2(out)
+
+        # print(f'out:{out.shape}')
+        # out = out.view(out.size(0), out.size(1), -1)
+        # print(f'out:{out.shape}')
+        # out = self.fc1(out)
+        # out = self.relu3(out)
+        
+        # out = self.fc2(out)
+        # out = self.relu4(out)
+        return out
 
 class Encoder4transformer(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, train_mode) -> None:
         super().__init__()
-        self.resnet = torchvision.models.resnet50(pretrained=True)
+        self.train_mode = train_mode
+        if train_mode == 'partial':
+            self.resnet = torchvision.models.resnet50(pretrained=True)
+            self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-2]))
+        elif train_mode == 'full':
+            # no pretrain
+            # resnet 18
+            # self.resnet = torchvision.models.resnet18(pretrained=False)
+            # self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-2]))
 
-        # no pretrain
-        # self.resnet = torchvision.models.resnet18(pretrained=False)
+            # 4层的ResNet
+            self.resnet = ResNet(BasicBlock, [1, 1, 1, 1])
+
+            # 简单的cnn
+            # self.resnet = CNN()
+        
         # 讲分类层去掉，只需要前面的feature map
-        self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-2]))
+        
 
     def forward(self, image):
         encoded_out = None
-        with torch.no_grad():
+        if self.train_mode == 'partial':
+            with torch.no_grad():
+                encoded_out = self.resnet(image)
+                # print(f'debug: encoded_out:{encoded_out.shape}')
+                encoded_out = encoded_out.view(encoded_out.size(0), encoded_out.size(1), -1)
+                # print(f'debug: encoded_out:{encoded_out.shape}')
+                encoded_out = encoded_out.permute(0, 2, 1)
+                encoded_out = encoded_out.detach()
+                # print(f'debug: encoded_out:{encoded_out.shape}')
+        elif self.train_mode == 'full':
             encoded_out = self.resnet(image)
+            
             encoded_out = encoded_out.view(encoded_out.size(0), encoded_out.size(1), -1)
             encoded_out = encoded_out.permute(0, 2, 1)
-            encoded_out = encoded_out.detach()
         return encoded_out
 
 # todo: 加入位置编码
@@ -50,19 +184,36 @@ class PositionalEncoding(nn.Module):
     
 
 class Decoder_transformer(nn.Module):
-    def __init__(self, tokenizer, max_length) -> None:
+    def __init__(self, tokenizer, config) -> None:
         super().__init__()
         self.tokenizer = tokenizer
         self.output_size = tokenizer.vocab_size
 
-        self.input_size = 2048
-        # self.input_size = 512
+        self.train_mode = config.train_mode
         self.embed_size = 256
+
+        if self.train_mode == 'partial':
+            self.input_size = 2048
+            self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=16)
+        elif self.train_mode == 'full':
+            # resnet 18
+            # self.input_size = 512
+            # self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=16)
+
+            # resnet
+            self.input_size = 64
+            self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=150)
+
+            # self.input_size = 32
+            # self.pe_encoder = PositionalEncoding(d_model=self.embed_size, max_len=60)
+        
         self.num_layer = 2
         self.num_head = 2
-        self.max_length = max_length
-        self.embedding_net = nn.Linear(1, self.embed_size)
-        self.pe = PositionalEncoding(d_model=self.embed_size, max_len=max_length)
+        self.max_length = config.max_length
+        
+        self.word_size = 100
+        self.embedding_net = nn.Linear(self.word_size, self.embed_size)
+        self.pe = PositionalEncoding(d_model=self.embed_size, max_len=self.max_length)
 
         self.input_to_encoded = nn.Linear(self.input_size, self.embed_size)
 
@@ -84,18 +235,18 @@ class Decoder_transformer(nn.Module):
         # print(f'debug: after captions length:{caption_lengths}')
 
         encoder_out = encoder_out[sort_idx]
-        encoded_captions = encoded_captions[sort_idx].unsqueeze(-1)
+        encoded_captions = encoded_captions[sort_idx]
         # print(f'debug: enout:{encoder_out.shape}')
         decoder_memory = self.input_to_encoded(encoder_out) # bs, 49, embed_size
 
         # ! 在encoder处加入了位置编码
-        # decoder_memory = self.pe(decoder_memory)
+        decoder_memory = self.pe_encoder(decoder_memory)
         
         # print(f'debug: decoder_memory:{decoder_memory.shape}')
         scale = math.sqrt(self.output_size)
         # print(f'debug: h:{h.shape}, c:{c.shape}')
         assert not torch.any(torch.isnan(encoded_captions)), "Nan happen in en_cap!!!"
-        embeded_captions = self.embedding_net((2 * encoded_captions[:, :-1] - self.output_size) / self.output_size )
+        embeded_captions = self.embedding_net(encoded_captions[:, :-1])
         assert not torch.any(torch.isnan(embeded_captions)), "Nan happen in em_cap1!!!"
         embeded_captions = self.pe(embeded_captions)
         assert not torch.any(torch.isnan(embeded_captions)), "Nan happen in em_cap2!!!"
@@ -209,15 +360,16 @@ class Decoder_transformer(nn.Module):
         encoded_input = self.input_to_encoded(encoder_out)
 
         # ! 在encoder处加入了位置编码
-        encoded_input = self.pe(encoded_input)
+        encoded_input = self.pe_encoder(encoded_input)
 
         # init selected tokens
         max_length = self.max_length
-        selected_tokens = torch.zeros((bs, max_length, 1)).to(device)
+        selected_tokens = torch.zeros((bs, max_length), dtype=torch.long).to(device)
         selected_tokens[:,0] = self.tokenizer.start_token_idx
 
         selected_embeded_tokens = torch.zeros((bs, max_length, self.embed_size)).to(device)
-        selected_embeded_tokens[:, 0] = self.pe(self.embedding_net((2 * selected_tokens[:, 0] - self.output_size) / self.output_size),pos=0)
+        # print(f'dubug: sel: {self.tokenizer.word_vectors[selected_tokens[:,0].cpu()].shape}')
+        selected_embeded_tokens[:, 0] = self.pe(self.embedding_net(torch.FloatTensor(self.tokenizer.word_vectors[selected_tokens[:,0].cpu()]).to(device)) ,pos=0)
 
         cur_len = 1
         while working_index.shape[0] > 0:
@@ -229,15 +381,15 @@ class Decoder_transformer(nn.Module):
             out_decoder = self.output_net(out_decoder[:, -1])
             if temperature > 0:
                 probs = torch.softmax(out_decoder / temperature, dim=-1)
-                next_token = sample_top_p(probs, top_p)
+                next_token = sample_top_p(probs, top_p).squeeze_(-1)
                 # print(f'debug: next_token:{next_token.shape}')
             else:
-                next_token = torch.argmax(out_decoder, dim=-1).unsqueeze(-1)
-            selected_tokens[working_index, cur_len, :] = next_token.float()
-            selected_embeded_tokens[working_index, cur_len, :] = self.pe(self.embedding_net((2 * selected_tokens[working_index, cur_len, :] - self.output_size) / self.output_size), pos=cur_len)
+                next_token = torch.argmax(out_decoder, dim=-1)
+            selected_tokens[working_index, cur_len] = next_token
+            selected_embeded_tokens[working_index, cur_len, :] = self.pe(self.embedding_net(torch.FloatTensor(self.tokenizer.word_vectors[next_token.cpu()]).to(device)), pos=cur_len)
             # print(f'debug: se:{selected_tokens.shape}, seem:{selected_embeded_tokens.shape}')
 
-            not_end_index = self.tokenizer.not_end(next_token).squeeze(-1)
+            not_end_index = self.tokenizer.not_end(next_token)
             # print(f'debug: index:{not_end_index}')
             working_index = working_index[not_end_index]
             # print(f'debug: widx:{working_index}')
