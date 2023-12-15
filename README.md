@@ -42,7 +42,7 @@ pip install requirements.txt
 
 ## Running
 * **Training**
-1. Prepare your dataset. This project is not to release the dataset, but you can construt your own dataset. (how to construct dataset? TODO)
+1. Prepare your dataset. This project is not to release the dataset, so this project is not executable direcly, but you can construt your own dataset. (how to construct dataset? TODO)
 2. Trigger training. Set the `training` variable to `True`, and then
 ```
 python run.py
