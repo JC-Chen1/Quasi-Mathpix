@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence
 import torchvision
 from utils import sample_top_p
+import torch.nn.functional as F
 
 class CNN(nn.Module):
     def __init__(self):
@@ -41,14 +42,89 @@ class CNN(nn.Module):
         # out = self.relu4(out)
         return out
 
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+        )
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        if stride != 1 or in_channels != self.expansion * out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(
+                    in_channels,
+                    self.expansion * out_channels,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(self.expansion * out_channels),
+            )
+        else:
+            self.shortcut = nn.Sequential()
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+    
+class ResNet(nn.Module):
+    def __init__(self, block, num_blocks, num_classes=10):
+        super(ResNet, self).__init__()
+        self.in_channels = 32
+
+        self.conv1 = nn.Conv2d(
+            3, 32, kernel_size=3, stride=1, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(32)
+        self.layer1 = self.make_layer(block, 32, num_blocks[0], stride=1)
+        self.layer2 = self.make_layer(block, 64, num_blocks[1], stride=2)
+        self.layer3 = self.make_layer(block, 64, num_blocks[2], stride=2)
+        self.layer4 = self.make_layer(block, 64, num_blocks[3], stride=2)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+    def make_layer(self, block, out_channels, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_channels, out_channels, stride))
+            self.in_channels = out_channels * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        # out = F.avg_pool2d(out, 4)
+        # out = out.view(out.size(0), -1)
+        # out = self.fc(out)
+        return out
+
 class Encoder4lstm(nn.Module):
     def __init__(self, train_mode) -> None:
         super().__init__()
         # self.resnet = torchvision.models.resnet50(pretrained=True)
         # self.fc = nn.Linear(1000, 256)
         # self.relu = nn.LeakyReLU()
-        self.cnn = CNN()
-        self.lstm = nn.LSTM(input_size=32, hidden_size=64, num_layers=1, batch_first=True)
+        # self.cnn = CNN()
+        self.cnn = ResNet(BasicBlock, [1, 1, 1, 1])
+        self.lstm = nn.LSTM(input_size=64, hidden_size=64, num_layers=1, batch_first=True)
 
 
     def forward(self, image):
@@ -83,6 +159,7 @@ class Decoder_lstm(nn.Module):
 
         self.init_h_net = nn.Linear(self.input_size, self.hidden_size)
         self.init_c_net = nn.Linear(self.input_size, self.hidden_size)
+
         
     
     def forward(self, encoder_out, encoded_captions = None, caption_lengths = None):
@@ -118,7 +195,7 @@ class Decoder_lstm(nn.Module):
             x_in = embeded_captions[:working_index, t].unsqueeze(1)
             h = h[:, :working_index]
             c = c[:, :working_index]
-            print(f'debug: x_in:{x_in.shape}')
+            # print(f'debug: x_in:{x_in.shape}')
             out_lstm, (h, c) = self.lstm(x_in, (h, c))
             out_lstm = self.output_net(out_lstm).squeeze(1)
             # no need to softmax
@@ -142,14 +219,18 @@ class Decoder_lstm(nn.Module):
 
         # init selected tokens
         max_length = self.max_length
-        selected_tokens = torch.zeros((bs, max_length, 1)).to(device)
+        selected_tokens = torch.zeros((bs, max_length), dtype=torch.long).to(device)
         selected_tokens[:,0] = self.tokenizer.start_token_idx
 
+        selected_embeded_tokens = torch.zeros((bs, max_length, self.input_size)).to(device)
+        # print(f'dubug: sel: {self.tokenizer.word_vectors[selected_tokens[:,0].cpu()].shape}')
+        selected_embeded_tokens[:, 0] = self.embedding_net(torch.FloatTensor(self.tokenizer.word_vectors[selected_tokens[:,0].cpu()]).to(device))
 
         while working_index.shape[0] > 0:
-            x_in = (2 * selected_tokens[working_index, cur_len] - self.output_size) / self.output_size
+            x_in = selected_embeded_tokens[working_index, cur_len].unsqueeze(1)
+            # x_in = (2 * selected_tokens[working_index, cur_len] - self.output_size) / self.output_size
             # print(f'debug: x_in:{x_in.shape}')
-            x_in = self.embedding_net(x_in).unsqueeze(1)
+            # x_in = self.embedding_net(x_in).unsqueeze(1)
             # print(f'debug: x_in:{x_in.shape}')
 
             out_lstm, (h, c) = self.lstm(x_in, (h, c))
@@ -157,14 +238,14 @@ class Decoder_lstm(nn.Module):
 
             if temperature > 0:
                 probs = torch.softmax(out_lstm / temperature, -1)
-                select_tok = sample_top_p(probs, top_p)
+                select_tok = sample_top_p(probs, top_p).squeeze_(-1)
             else:
-                select_tok = torch.argmax(out_lstm, -1).unsqueeze(-1)
+                select_tok = torch.argmax(out_lstm, -1)
             # print(f'debug: select_tok{select_tok}')
-            selected_tokens[working_index, cur_len+1, :] = select_tok.float()
+            selected_tokens[working_index, cur_len+1] = select_tok
+            selected_embeded_tokens[working_index, cur_len+1, :] = self.embedding_net(torch.FloatTensor(self.tokenizer.word_vectors[select_tok.cpu()]).to(device))
 
-
-            not_end_index = self.tokenizer.not_end(select_tok).squeeze(-1)
+            not_end_index = self.tokenizer.not_end(select_tok)
             # print(f'debug: index:{not_end_index}')
             working_index = working_index[not_end_index]
             # print(f'debug: working_idx:{working_index}')
