@@ -48,7 +48,8 @@ pip install requirements.txt
 python run.py
 ```
 * **Testing**
-Set the `training` variable to `True`, and then
+1. Prepare your dataset.
+2. Set the `training` variable to `False`, and then
 ```
 python run.py
 ```

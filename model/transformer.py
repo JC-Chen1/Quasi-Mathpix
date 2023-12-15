@@ -239,7 +239,7 @@ class Decoder_transformer(nn.Module):
         # print(f'debug: enout:{encoder_out.shape}')
         decoder_memory = self.input_to_encoded(encoder_out) # bs, 49, embed_size
 
-        # ! 在encoder处加入了位置编码
+        # 位置编码
         decoder_memory = self.pe_encoder(decoder_memory)
         
         # print(f'debug: decoder_memory:{decoder_memory.shape}')
@@ -359,7 +359,7 @@ class Decoder_transformer(nn.Module):
 
         encoded_input = self.input_to_encoded(encoder_out)
 
-        # ! 在encoder处加入了位置编码
+        # 位置编码
         encoded_input = self.pe_encoder(encoded_input)
 
         # init selected tokens

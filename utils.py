@@ -22,7 +22,7 @@ def clip_grad_norms(param_groups, max_norm=math.inf):
     return grad_norms, grad_norms_clipped
 
 
-# todo: 加入top-p采样
+# top-p采样
 def sample_top_p(probs, p):
     """
     Perform top-p (nucleus) sampling on a probability distribution.

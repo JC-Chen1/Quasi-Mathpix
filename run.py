@@ -13,7 +13,6 @@ import pickle
 import json
 import numpy as np
 
-# todo: encode是否要scale，训练模式, encoder是否要pretrain, encoder输出是否要加入位置编码，好像也是要加？
 
 class Config(object):
     def __init__(self) -> None:

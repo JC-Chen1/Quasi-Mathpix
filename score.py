@@ -29,7 +29,6 @@ def edit_distance(references, hypotheses):
     return (1. - d_leven/len_tot)*100
 
 #exact math score:
-#这里应该是需要预测的准确度进行计算
 def exact_match_score(references, hypothesis):
     assert len(references) == len(hypothesis), 'references and hypothesis have different length!!!'
     count = 0
