@@ -1,4 +1,4 @@
-# Quasi-Mathfix
+# Quasi-Mathpix
 
 
 A simple image-to-latex recognizer.
